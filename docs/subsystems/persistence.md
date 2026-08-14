@@ -377,6 +377,17 @@ abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
  * @returns one header and opaque revision per materialized session without loading full logs.
  */
 abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
+
+/**
+ * Delete one session's durable log. A backend that does not support
+ * deletion rejects; first-party backends override this with their storage
+ * primitive. A live (attached) session must be rejected by the coordinator
+ * before the backend removes storage.
+ * @param _id - the persisted session to delete (unused by the default: no deletion).
+ * @returns `true` when the identity was removed, `false` when it was absent.
+ * @throws when this backend does not support deletion.
+ */
+delete(_id: SessionId): Promise<boolean>
 ```
 
 Types: [SessionEvent](session.md) · [SessionId](core.md)

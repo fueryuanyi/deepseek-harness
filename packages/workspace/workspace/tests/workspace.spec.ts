@@ -895,6 +895,48 @@ describe('registry-global session archive', () => {
     expect(result.registry.archivedSessionIds).toEqual(['gone', 'kept'])
   })
 
+  it('unarchives durably in order and idempotently skips ids not in the set', async () => {
+    const dir = await makeDir('unarchive-home')
+    const result = await harness({ sessions: [header('kept', dir, 100), header('gone', dir, 200)] })
+    await result.registry.archiveSession(SessionId('gone'))
+    await result.registry.archiveSession(SessionId('kept'))
+    expect(result.registry.archivedSessionIds).toEqual(['gone', 'kept'])
+
+    await result.registry.unarchiveSession(SessionId('gone'))
+    expect(result.registry.archivedSessionIds).toEqual(['kept'])
+    expect(storedState(result.pool).archivedSessionIds).toEqual(['kept'])
+    const changesAfterFirst = result.changes.filter(change => change.table === '').length
+
+    // An id absent from the set resolves without a write or a change event.
+    await result.registry.unarchiveSession(SessionId('gone'))
+    expect(result.registry.archivedSessionIds).toEqual(['kept'])
+    expect(result.changes.filter(change => change.table === '').length).toBe(changesAfterFirst)
+
+    await result.registry.unarchiveSession(SessionId('kept'))
+    expect(result.registry.archivedSessionIds).toEqual([])
+  })
+
+  it('removeSession clears the archive set and every workspace account', async () => {
+    const dir = await makeDir('remove-home')
+    const result = await harness({ sessions: [header('kept', dir, 100), header('gone', dir, 200)] })
+    const workspace = result.registry.list()[0]!
+    await result.registry.archiveSession(SessionId('gone'))
+    expect(result.registry.archivedSessionIds).toEqual(['gone'])
+    expect(workspace.sessionIds).toContain('gone')
+
+    await result.registry.removeSession(SessionId('gone'))
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(workspace.sessionIds).not.toContain('gone')
+    expect(workspace.sessionIds).toContain('kept')
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
+
+    // Removing a non-archived session skips the archive-set write but still
+    // detaches its account slot.
+    await result.registry.removeSession(SessionId('kept'))
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(workspace.sessionIds).not.toContain('kept')
+  })
+
   it('accepts unaccounted and live sessions but rejects unknown ids without writing', async () => {
     const dir = await makeDir('archive-strays')
     const live = await makeDir('archive-live')

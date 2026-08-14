@@ -378,6 +378,19 @@
   margin-top: 4px;
 }
 
+/* Archived section header: same metrics as a workspace header but static. */
+.archivedHeader {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  user-select: none;
+}
+
 .listTopDropIndicator,
 .workspaceDropBefore::before,
 .workspaceDropAfter::after {

@@ -182,6 +182,10 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
     return this.coordinator.append(id, events)
   }
 
+  override delete(id: SessionId): Promise<boolean> {
+    return this.coordinator.delete(id)
+  }
+
   override prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
     return this.coordinator.prepare(id, signal)
   }
@@ -347,6 +351,13 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
       .all() as unknown as SessionRow[]
     signal?.throwIfAborted()
     return rows.map(rowToMeta)
+  }
+
+  /** Durably remove one session's rows (idempotent: absent identity returns false). */
+  async deleteStored(id: SessionId): Promise<boolean> {
+    await this.ready
+    const info = this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+    return Number(info.changes) > 0
   }
 
   /** List metadata with a source-qualified monotonic revision per session. */

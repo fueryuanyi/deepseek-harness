@@ -242,6 +242,32 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('delete removes a cold persisted session and rejects a live one', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const cold = meta('cold-delete', WORK)
+        await ctx.sessionPersistence.create(cold)
+        await ctx.sessionPersistence.append(SessionId('cold-delete'), oneTurnLog())
+        expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(SessionId('cold-delete'))
+
+        expect(await ctx.sessionPersistence.delete(SessionId('cold-delete'))).toBe(true)
+        // The idempotent retry reports absence instead of erroring.
+        expect(await ctx.sessionPersistence.delete(SessionId('cold-delete'))).toBe(false)
+        expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(SessionId('cold-delete'))
+        await expect(ctx.sessionPersistence.load(SessionId('cold-delete'))).rejects.toThrow()
+
+        // A live session's durable log cannot be deleted mid-flight.
+        const live = ctx.sessions.create(SessionId('live-delete'), { meta: { cwd: WORK } })
+        appendLog(live, oneTurnLog())
+        await ctx.sessions.flush(live)
+        await expect(ctx.sessionPersistence.delete(SessionId('live-delete'))).rejects.toThrow(/bound to a live session/)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('rejects crash-repair load while a live session owns the persisted prefix', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)

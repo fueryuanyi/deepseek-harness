@@ -199,6 +199,15 @@ export interface PersistenceBackend<TornMarker = unknown> {
   list(signal?: AbortSignal): Promise<SessionHeader[]>
 
   /**
+   * Durably remove one session's storage (its artifact, or its rows). The
+   * coordinator rejects live sessions before this hook runs, so the backend
+   * only ever deletes cold storage. Returns `false` when the identity is
+   * absent (an idempotent retry).
+   * @param id - persisted session id to delete.
+   */
+  deleteStored(id: SessionId): Promise<boolean>
+
+  /**
    * Optional side-effect-free artifact locator, used to point refusal
    * diagnostics ({@link SessionFormatUnsupportedError}) at the raw log.
    * Backends without one artifact per session omit it or return `undefined`.
@@ -677,6 +686,28 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       throw new TypeError('session event batch is not losslessly JSON-serializable because it contains non-JSON-serializable data')
     }
     return this.serialize(id, () => this.appendCore(id, batch))
+  }
+
+  /**
+   * Delete one session's durable log and in-memory state. A session bound to
+   * a live (or still-retiring) Session rejects: removing its storage would
+   * orphan in-flight writes. A cold prepared view is invalidated before the
+   * backend removes storage. The id serializes against every other operation
+   * for the same session, so the live-session check cannot race a write.
+   * @param id - persisted session to delete.
+   * @returns `true` when storage was removed, `false` when the identity was absent.
+   */
+  async delete(id: SessionId): Promise<boolean> {
+    return await this.serialize(id, async () => {
+      const state = this.states.get(id)
+      if (state?.owner !== undefined) {
+        throw new Error(`cannot delete session '${id}': it is bound to a live session`)
+      }
+      this.preparations.invalidate(id)
+      const deleted = await this.backend.deleteStored(id)
+      if (deleted) this.states.delete(id)
+      return deleted
+    })
   }
 
   private async appendCore(id: SessionId, events: readonly SessionEvent[]): Promise<void> {

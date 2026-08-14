@@ -532,6 +532,17 @@ export class SessionRuntime implements ISessions {
   }
 
   /**
+   * Delete a session durably and drop it from the local list. The host
+   * rejects a live (attached) session with `session-busy`.
+   * @param sessionId - session to delete.
+   * @throws when the wire delete fails.
+   */
+  async delete(sessionId: SessionId): Promise<void> {
+    const result = await this.manager.delete(sessionId)
+    if (!result.ok) throw new Error(`session delete failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /**
    * Resolve an Agent-scoped context view (use-and-discard).
    * @param id - session id (the agent identity — 1:1 same axis).
    * @returns scoped ctx, or undefined for a session neither listed nor already scoped.

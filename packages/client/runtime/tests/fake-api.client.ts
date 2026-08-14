@@ -155,7 +155,11 @@ export class FakeApiClient implements IApiClient {
     attachment: (payload: unknown) => this.record('session.attachment', payload, this.onAttachment(payload)),
     updateQueue: (payload: unknown) => this.record('session.updateQueue', payload, this.onUpdateQueue(payload)),
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
+    delete: (payload: unknown) => this.record('session.delete', payload, this.onDelete(payload)),
   }
+
+  onDelete: (payload: unknown) => Promise<RpcResponse<{ deleted: true }>> =
+    () => Promise.resolve(ok({ deleted: true as const }))
 
   onSubagentList: (payload: unknown) => Promise<RpcResponse<{ entries: never[]; parentAvailable: boolean }>>
     = () => Promise.resolve(ok({ entries: [], parentAvailable: true }))
@@ -204,6 +208,9 @@ export class FakeApiClient implements IApiClient {
   onWorkspaceArchiveSession: (payload: unknown) => Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>> =
     payload => Promise.resolve(ok({ archivedSessionIds: [(payload as { sessionId: SessionId }).sessionId] }))
 
+  onWorkspaceUnarchiveSession: (payload: unknown) => Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>> =
+    () => Promise.resolve(ok({ archivedSessionIds: [] }))
+
   readonly workspace: IApiClient['workspace'] = {
     list: (payload: unknown) => this.record('workspace.list', payload, this.onWorkspaceList(payload).then(response => (
       response.result.ok
@@ -219,6 +226,8 @@ export class FakeApiClient implements IApiClient {
       this.record('workspace.insertSessionBefore', payload, this.onWorkspaceInsertSessionBefore(payload)),
     archiveSession: (payload: unknown) =>
       this.record('workspace.archiveSession', payload, this.onWorkspaceArchiveSession(payload)),
+    unarchiveSession: (payload: unknown) =>
+      this.record('workspace.unarchiveSession', payload, this.onWorkspaceUnarchiveSession(payload)),
   }
 
   // Payloads stay `unknown` (lint-lane note above); response rows are the real

@@ -76,6 +76,8 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
+    unarchiveSession: vi.fn(async () => {}),
+    deleteSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
@@ -314,7 +316,7 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
   })
 
-  it('archives a session from the row menu and hides archived rows in both modes', async () => {
+  it('archives a session from the row menu and surfaces it in the Archived section in both modes', async () => {
     const archiveSession = vi.fn(async () => {})
     const b = mount({
       useSessions: hook(sessionState([summary('kept-s', 2), summary('gone-s', 1)])),
@@ -326,13 +328,16 @@ describe('WorkspaceBrowser', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
     expect(archiveSession).toHaveBeenCalledWith(sid('gone-s'))
 
-    // The archive-set echo hides the row in grouped and flat modes.
+    // The archive-set echo moves the row out of workspace groups into the
+    // Archived section, which appears in both grouped and flat modes.
     rerender(b, { useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'gone-s'])], [sid('gone-s')])) })
-    expect(screen.queryByText('gone-s')).toBeNull()
+    expect(screen.getByText('已归档')).toBeTruthy()
+    expect(screen.getByText('gone-s')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
     expect(screen.getByText('kept-s')).toBeTruthy()
-    expect(screen.queryByText('gone-s')).toBeNull()
+    expect(screen.getByText('已归档')).toBeTruthy()
+    expect(screen.getByText('gone-s')).toBeTruthy()
   })
 
   it('logs and keeps the tree when the archive call rejects', async () => {
@@ -355,6 +360,66 @@ describe('WorkspaceBrowser', () => {
     } finally {
       warn.mockRestore()
     }
+  })
+
+  it('logs and keeps the tree when the unarchive call rejects', async () => {
+    const rejection = new Error('unarchive exploded')
+    const unarchiveSession = vi.fn(async () => { throw rejection })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      mount({
+        useSessions: hook(sessionState([summary('gone-s', 1)])),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['gone-s'])], [sid('gone-s')])),
+        unarchiveSession,
+      })
+      fireEvent.click(screen.getByRole('button', { name: '会话“gone-s”的操作' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: '取消归档' }))
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(warn).toHaveBeenCalledWith('session unarchive rejected:', rejection)
+      expect(screen.getByText('gone-s')).toBeTruthy()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('renders the Archived section and unarchives from its row menu', async () => {
+    const unarchiveSession = vi.fn(async () => {})
+    const b = mount({
+      useSessions: hook(sessionState([summary('kept-s', 2), summary('gone-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'gone-s'])], [sid('gone-s')])),
+      unarchiveSession,
+    })
+    // Archived rows surface under the Archived header, outside workspace groups.
+    expect(screen.getByText('已归档')).toBeTruthy()
+    expect(screen.getByText('gone-s')).toBeTruthy()
+
+    // The archived row's menu offers unarchive, not archive.
+    fireEvent.click(screen.getByRole('button', { name: '会话“gone-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '取消归档' }))
+    expect(unarchiveSession).toHaveBeenCalledWith(sid('gone-s'))
+
+    // The archive-set echo empties the section (header and row both unmount).
+    rerender(b, { useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'gone-s'])], [])) })
+    expect(screen.queryByText('已归档')).toBeNull()
+    expect(screen.queryByText('gone-s')).toBeNull()
+  })
+
+  it('deletes an archived session through its row menu and confirmation dialog', async () => {
+    const deleteSession = vi.fn(async () => {})
+    mount({
+      useSessions: hook(sessionState([summary('gone-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['gone-s'])], [sid('gone-s')])),
+      deleteSession,
+    })
+    // The archived row's menu offers delete; selecting it opens the dialog.
+    fireEvent.click(screen.getByRole('button', { name: '会话“gone-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除会话' }))
+    // Confirming the dialog dispatches the delete.
+    fireEvent.click(screen.getByRole('button', { name: '删除会话' }))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(deleteSession).toHaveBeenCalledWith(sid('gone-s'))
   })
 
   it('renders a fork child as a top-level row without a session twist', () => {

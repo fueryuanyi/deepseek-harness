@@ -603,6 +603,25 @@ export class SessionManager {
   }
 
   /**
+   * Contract session.delete; on success remove the session from summaries
+   * immediately (the host's session-removed frame is the durable echo, but the
+   * local remove keeps the row gone without waiting for the stream).
+   * @param sessionId - session to delete.
+   * @returns the delete result.
+   */
+  async delete(sessionId: SessionId): Promise<RpcResult<{ deleted: true }>> {
+    try {
+      const { result } = await this.api.sessions.delete({ sessionId })
+      if (result.ok) {
+        this.recordMutation({ kind: 'remove', sessionId })
+      }
+      return result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
+  /**
    * Insert-or-enrich a locally synthesized summary: a new id prepends; an
    * existing entry only gains fields it lacks (the session-added frame and the
    * create() echo race — whichever lands second must fill the placeholder's

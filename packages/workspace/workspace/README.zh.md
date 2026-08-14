@@ -15,6 +15,7 @@ DeepSeek Harness 的 Workspace 实体注册表（`ctx.workspaceRegistry`）：�
 - `Workspace.attachSession(id)`：对照 workspace 路径验证实时或已持久化的会话头 cwd，并将新 id 前置。未知会话、缺失／无法解析／非目录的 cwd 值和不匹配情况都会在不写入的前提下被拒绝。`detachSession` 只移除候选索引条目。
 - `Workspace.insertSessionBefore(id, before?)`：在手动顺序内移动一个已记账的会话，语义类似 DOM 的 insertBefore：插到锚点之前，省略锚点则追加到末尾。会话或锚点不在记账中时拒绝且不写入；移动到当前位置时直接完成且不写入。注册表中的 Workspace 顺序绝不改变。
 - `ctx.workspaceRegistry.archiveSession(id)`/`archivedSessionIds`：覆盖在 workspace 记账之上的注册表级全局归档集合：被归档的会话从各分组视图中消失，但其会话日志和 `sessionIds` 席位保持不变，未来取消归档时可恢复原位置。归档接受任何实时或已持久化的会话（无论已记账还是 Ungrouped），对已归档的 id 直接完成而不写入，并拒绝未知 id。在该字段出现之前写入的状态解析为一个空集合。
+- `ctx.workspaceRegistry.unarchiveSession(id)`：把会话移出注册表级全局归档集合，恢复其分组视图席位（其 workspace 记账或 Ungrouped 分组）。不在集合中的 id 直接完成而不写入；幂等跳过可避免丢失的取消归档重试破坏集合。
 - `Workspace.sessionIds`：按持久候选顺序提供同步 id 加规范 cwd 成员投影。缺失头部、无效 cwd 值和不匹配情况都被过滤；下一次 workspace 变更会剪除它们。如果同一存储介质将一个会话索引到两个 workspace 下、用两条记录声明同一路径，或偏离持久 workspace 顺序，启动会被拒绝。
 - `Workspace.status()`：未缓存的目录检查，返回 `'ok' | 'missing-dir'`；目录缺失绝不会改动记录。
 

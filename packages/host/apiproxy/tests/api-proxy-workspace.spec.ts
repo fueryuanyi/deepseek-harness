@@ -75,7 +75,10 @@ async function harness(
   const storageDomain = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', storageDomain)
   ctx.provide('storageDomain', storageDomain)
-  ctx.provide('sessionPersistence', { list: () => Promise.resolve([]) } as never)
+  ctx.provide('sessionPersistence', {
+    list: () => Promise.resolve([]),
+    delete: () => Promise.resolve(false),
+  } as never)
   await ctx.plugin(WorkspaceRegistry)
 
   const factory: AgentFactory = {
@@ -566,5 +569,44 @@ describe('Host Workspace increments', () => {
       error: { code: 'session-not-found', details: { sessionId: 'session-ghost' } },
     })
     abort.abort()
+  })
+
+  it('unarchives a session out of the global set and keeps its accounting', async () => {
+    const { api, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'unarchive-home') }))).workspace
+    const sessionId = SessionId('session-to-unarchive')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+    expectOk(await api.workspace.archiveSession(request({ sessionId })))
+    expect(expectOk(await api.workspace.list(request({}))).archivedSessionIds).toEqual([sessionId])
+
+    expect(expectOk(await api.workspace.unarchiveSession(request({ sessionId }))).archivedSessionIds)
+      .toEqual([])
+    // Unarchive restores the grouping-surface slot: the account and the
+    // session remain, only the archive-set membership is removed.
+    const listed = expectOk(await api.workspace.list(request({})))
+    expect(listed.archivedSessionIds).toEqual([])
+    expect(listed.items[0]?.sessionIds).toEqual([sessionId])
+    expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(sessionId)
+  })
+
+  it('rejects deleting a live (attached) session with session-busy', async () => {
+    const { api, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'delete-live') }))).workspace
+    const sessionId = SessionId('session-live-delete')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+
+    const result = await api.sessions.delete(request({ sessionId }))
+    expect(result.result).toMatchObject({
+      ok: false,
+      error: { code: 'session-busy', details: { sessionId } },
+    })
+  })
+
+  it('deletes a cold session through the persistence layer', async () => {
+    const { api } = await harness()
+    // A never-attached id is cold: the RPC skips the live-session rejection and
+    // clears accounting/archive before deleting the log.
+    const result = await api.sessions.delete(request({ sessionId: SessionId('session-never-created') }))
+    expect(result.result).toMatchObject({ ok: true, value: { deleted: true } })
   })
 })

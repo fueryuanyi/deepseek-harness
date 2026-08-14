@@ -13,6 +13,13 @@ import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-c
 /** The durable store shape: materialized sessions only (no lazy entries). */
 type MemoryStore = Map<string, { meta: SessionHeader; events: SessionEvent[] }>
 
+/** Remove one session from a memory store; returns whether it was present. */
+function deleteFromStore(store: MemoryStore, id: SessionId): boolean {
+  const present = store.has(id)
+  store.delete(id)
+  return present
+}
+
 /** Test-store revision that changes for any metadata or event mutation. */
 function memoryRevision(entry: { meta: SessionHeader; events: SessionEvent[] }): SessionPersistenceRevision {
   return SessionPersistenceRevision(JSON.stringify(entry))
@@ -101,6 +108,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return this.coordinator.append(id, events)
   }
 
+  override delete(id: SessionId): Promise<boolean> {
+    return this.coordinator.delete(id)
+  }
+
   override prepare(id: SessionId, signal?: AbortSignal): ReturnType<PersistenceCoordinator['prepare']> {
     return this.coordinator.prepare(id, signal)
   }
@@ -173,6 +184,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
       revision: memoryRevision(entry),
     }))
   }
+
+  async deleteStored(id: SessionId): Promise<boolean> {
+    return deleteFromStore(this.store, id)
+  }
 }
 
 /** Controllable storage primitive for serialization and retirement failure tests. */
@@ -230,6 +245,10 @@ class ControlledBackend implements PersistenceBackend<never> {
 
   async list(): Promise<SessionHeader[]> {
     return [...this.store.values()].map(entry => structuredClone(entry.meta))
+  }
+
+  async deleteStored(id: SessionId): Promise<boolean> {
+    return deleteFromStore(this.store, id)
   }
 
   async close(): Promise<void> {

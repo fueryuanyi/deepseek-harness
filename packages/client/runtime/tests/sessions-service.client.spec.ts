@@ -594,6 +594,31 @@ describe('fork', () => {
   })
 })
 
+describe('delete', () => {
+  it('deletes a session and removes it from the list', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'gone' }, { id: 'kept' }])
+    b.api.onDelete = () => Promise.resolve(ok({ deleted: true as const }))
+
+    await expect(b.svc.delete(sid('gone'))).resolves.toBeUndefined()
+    expect(b.api.callsOf('session.delete')).toEqual([{ sessionId: 'gone' }])
+    await Promise.resolve()
+    expect(b.svc.list.getSnapshot().byId[sid('gone')]).toBeUndefined()
+    expect(b.svc.list.getSnapshot().byId[sid('kept')]).toBeDefined()
+  })
+
+  it('rejects on a host failure and keeps the row', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'gone' }])
+    b.api.onDelete = () => Promise.resolve(err({
+      code: 'session-busy', message: 'running', details: { sessionId: sid('gone') },
+    }))
+
+    await expect(b.svc.delete(sid('gone'))).rejects.toThrow(/session-busy/)
+    expect(b.svc.list.getSnapshot().byId[sid('gone')]).toBeDefined()
+  })
+})
+
 describe('scope lifecycle rides the list mirror (entity parity: no client-side pre-birth)', () => {
   it('a session-added frame births the row (blank) and makes the scope resolvable; removal prunes it', async () => {
     const b = bench()

@@ -96,6 +96,12 @@ export interface ISessions {
    */
   fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId>
   /**
+   * Delete a session durably and drop it from the local list. The host
+   * rejects a live (attached) session with `session-busy`.
+   * @param sessionId - session to delete.
+   */
+  delete(sessionId: SessionId): Promise<void>
+  /**
    * Register a per-session standard-props provider (hooks become `use<Name>`
    * selector hooks on the render side; props spread verbatim).
    * @param descriptor - static member roster plus per-session resolver.

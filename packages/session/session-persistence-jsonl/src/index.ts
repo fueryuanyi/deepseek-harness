@@ -181,6 +181,10 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     return this.coordinator.append(id, events)
   }
 
+  override delete(id: SessionId): Promise<boolean> {
+    return this.coordinator.delete(id)
+  }
+
   override prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
     return this.coordinator.prepare(id, signal)
   }
@@ -467,6 +471,15 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     }
     signal?.throwIfAborted()
     return snapshots
+  }
+
+  /** Durably remove one session's directory (idempotent: absent identity returns false). */
+  async deleteStored(id: SessionId): Promise<boolean> {
+    await this.ensureRootEncoding()
+    const path = await this.findLog(id)
+    if (path === undefined) return false
+    await rm(dirname(path), { recursive: true, force: true })
+    return true
   }
 
   private async listArtifacts(signal?: AbortSignal): Promise<Array<{ header: SessionHeader; path: string }>> {

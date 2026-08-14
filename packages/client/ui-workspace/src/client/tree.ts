@@ -297,6 +297,31 @@ export function deriveFlat(
   return rows.map(session => sessionNode(session, descendants))
 }
 
+/**
+ * Derive the Archived section: every archived top-level session, newest
+ * first. Subagent children stay out like every other surface (their parent
+ * root owns the lineage); the accounting slot is irrelevant here because the
+ * section renders directly from the archive set.
+ * @param list - sessions list snapshot.
+ * @param archivedSessionIds - registry-global archive set.
+ * @returns archived rows in recency order.
+ */
+export function deriveArchived(
+  list: SessionListState,
+  archivedSessionIds: readonly SessionId[],
+): SessionNode[] {
+  const archived = new Set(archivedSessionIds)
+  const descendants = indexSubagentDescendants(list.byId)
+  const rows: SessionSummary[] = []
+  for (const id of list.ids) {
+    const s = list.byId[id]
+    if (s === undefined || !archived.has(s.id) || s.origin === 'subagent') continue
+    rows.push(s)
+  }
+  rows.sort(byRecency)
+  return rows.map(session => sessionNode(session, descendants))
+}
+
 /** Relative-time bucket of a session row's trailing label. */
 export type RelativeTimeUnit = 'now' | 'minutes' | 'hours' | 'days' | 'months' | 'years'
 

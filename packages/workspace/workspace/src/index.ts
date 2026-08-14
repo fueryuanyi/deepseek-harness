@@ -255,6 +255,46 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * Unarchive one session durably: remove it from the registry-global archive
+   * set so grouping surfaces render it again in its workspace account slot (or
+   * the ungrouped bucket). An id that is not archived resolves without
+   * writing, so a lost unarchive retry cannot corrupt the set.
+   * @param sessionId - The session to unarchive.
+   * @returns resolution after durability.
+   */
+  unarchiveSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      if (!state.archivedSessionIds.includes(sessionId)) return
+      await this.setState({
+        ...state,
+        archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+      })
+    })
+  }
+
+  /**
+   * Remove one session from the registry entirely: its archive-set membership
+   * and every workspace account slot. Called before the persistence layer
+   * deletes the session's log, so no grouping surface or account retains a
+   * dangling id. Idempotent for an id neither archived nor accounted.
+   * @param sessionId - The session to remove.
+   * @returns resolution after durability.
+   */
+  removeSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      const archived = state.archivedSessionIds.filter(id => id !== sessionId)
+      if (archived.length !== state.archivedSessionIds.length) {
+        await this.setState({ ...state, archivedSessionIds: archived })
+      }
+      for (const entity of this.entities.values()) {
+        await entity.detachSession(sessionId)
+      }
+    })
+  }
+
+  /**
    * Whether a session is live, header-indexed, or present in a fresh
    * persistence listing. Only a definite miss returns false — a failing
    * `sessionPersistence.list()` propagates so storage faults never

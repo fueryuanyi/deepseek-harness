@@ -2631,6 +2631,30 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         agent.cancel({ kind: 'user' }, { keepInbox: true })
         return Promise.resolve(ok(request, { accepted: true as const }))
       },
+
+      async delete(request) {
+        const { sessionId } = request.payload
+        if (ctx.sessions.get(sessionId) !== undefined) {
+          return err(request, {
+            code: 'session-busy',
+            message: `session "${sessionId}" is running; stop it before deleting`,
+            details: { sessionId },
+          })
+        }
+        // Remove accounting/archive membership first so a failed log delete
+        // leaves the session Ungrouped rather than a dangling account slot.
+        await ctx.workspaceRegistry.removeSession(sessionId)
+        const persistence = ctx.get('sessionPersistence')
+        if (persistence === undefined) {
+          // The workspace registry this call already reached requires
+          // sessionPersistence, so a composition that can remove a session
+          // always has it; fail loud rather than silently skip deletion.
+          /* v8 ignore next -- unreachable: workspaceRegistry's injection requires sessionPersistence */
+          throw new Error('sessionPersistence is required to delete a session')
+        }
+        await persistence.delete(sessionId)
+        return ok(request, { deleted: true as const })
+      },
     },
 
     subagents: {
@@ -2916,6 +2940,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { sessionId },
           })
         }
+        return ok(request, { archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds] })
+      },
+
+      async unarchiveSession(request) {
+        await ctx.workspaceRegistry.unarchiveSession(request.payload.sessionId)
         return ok(request, { archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds] })
       },
     },

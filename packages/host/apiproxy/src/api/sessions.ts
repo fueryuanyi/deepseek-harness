@@ -370,4 +370,12 @@ export interface SessionsApi {
    */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
 
+  /**
+   * Permanently deletes one session's durable log and removes it from every
+   * grouping surface (the registry-global archive set and its workspace
+   * account). A live (attached) session fails with `session-busy`; the caller
+   * must stop it first. Idempotent for an already-absent session.
+   */
+  delete(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ deleted: true }>>
+
 }

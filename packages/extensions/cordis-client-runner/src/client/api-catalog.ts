@@ -197,6 +197,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when the fork fails, or when a requested child-title rename fails after creation.'],
       },
       {
+        signature: 'delete(sessionId: SessionId): Promise<void>',
+        description: 'Delete a session durably and drop it from the local list. The host rejects a live (attached) session with `session-busy`.',
+        parameters: [{ name: 'sessionId', description: 'session to delete.' }],
+      },
+      {
         signature: 'scope(id: SessionId): AgentContext | undefined',
         description: 'Resolve an Agent-scoped context view (use-and-discard).',
         parameters: [{ name: 'id', description: 'session id.' }],
@@ -362,6 +367,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'archiveSession(sessionId: SessionId): Promise<void>',
         description: 'Archive a session into the registry-global set (hidden from grouping surfaces; session log and accounting slot remain). Archiving the current session clears the selection into the New Session view state.',
         parameters: [{ name: 'sessionId', description: 'session to archive.' }],
+      },
+      {
+        signature: 'unarchiveSession(sessionId: SessionId): Promise<void>',
+        description: 'Unarchive a session out of the registry-global set, restoring its grouping-surface slot.',
+        parameters: [{ name: 'sessionId', description: 'session to unarchive.' }],
       },
     ],
   },

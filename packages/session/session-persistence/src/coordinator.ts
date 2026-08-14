@@ -689,15 +689,19 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   /**
-   * Delete one session's durable log and in-memory state. A session bound to
-   * a live (or still-retiring) Session rejects: removing its storage would
-   * orphan in-flight writes. A cold prepared view is invalidated before the
-   * backend removes storage. The id serializes against every other operation
-   * for the same session, so the live-session check cannot race a write.
+   * Delete one session's durable log and in-memory state. A session still
+   * bound to a live Session rejects: removing its storage would orphan
+   * in-flight writes. An already-disposed session whose retirement is still
+   * draining is waited out first (the same posture as {@link load}), so a
+   * caller that disposed the Session can delete it without racing the final
+   * flush. A cold prepared view is invalidated before the backend removes
+   * storage. The id serializes against every other operation for the same
+   * session, so the live-session check cannot race a write.
    * @param id - persisted session to delete.
    * @returns `true` when storage was removed, `false` when the identity was absent.
    */
   async delete(id: SessionId): Promise<boolean> {
+    await this.waitForRetirement(id)
     return await this.serialize(id, async () => {
       const state = this.states.get(id)
       if (state?.owner !== undefined) {

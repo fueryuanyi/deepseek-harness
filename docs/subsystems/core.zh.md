@@ -704,6 +704,16 @@ announce(agent: Agent): void
 get(id: SessionId): Agent | undefined
 
 /**
+ * Tear down one live agent by id: stop its loop, unregister it, remove its
+ * session, and unwind its scope through the retained create/resume handle.
+ * Resolves without effect for an id with no live agent or already-retired
+ * teardown, so callers may dispose defensively before deleting a session.
+ * @param id - the shared agent/session id to dispose.
+ * @returns resolution after the shared teardown settles.
+ */
+async dispose(id: SessionId): Promise<void>
+
+/**
  * Test whether a live agent was created through one exact parent agent's
  * scoped context. Runtime ownership is independent of durable session
  * lineage and remains unambiguous when unrelated providers reuse an id.

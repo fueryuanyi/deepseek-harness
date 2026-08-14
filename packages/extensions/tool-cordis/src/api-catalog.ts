@@ -285,6 +285,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the agent, or undefined when no live agent has that id.',
       },
       {
+        signature: 'async dispose(id: SessionId): Promise<void>',
+        description: 'Tear down one live agent by id: stop its loop, unregister it, remove its session, and unwind its scope through the retained create/resume handle. Resolves without effect for an id with no live agent or already-retired teardown, so callers may dispose defensively before deleting a session.',
+        parameters: [{ name: 'id', description: 'the shared agent/session id to dispose.' }],
+        returns: 'resolution after the shared teardown settles.',
+      },
+      {
         signature: 'isOwnedBy(id: SessionId, owner: Agent): boolean',
         description: 'Test whether a live agent was created through one exact parent agent\'s scoped context. Runtime ownership is independent of durable session lineage and remains unambiguous when unrelated providers reuse an id.',
         parameters: [{ name: 'id', description: 'the candidate child agent\'s shared agent/session id.' }, { name: 'owner', description: 'the expected runtime creator agent.' }],

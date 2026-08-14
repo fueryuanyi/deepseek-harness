@@ -1654,11 +1654,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // session's history was produced under that composition, and
           // rebuilding it differently would replay tool calls the model can no
           // longer make.
-          return (await ctx.agents.resume({
+          const handle = await ctx.agents.resume({
             resumeSessionId: sessionId,
             agentOptions: agentOptions(),
             setup: (await composeAgent(storedPreset)).setup,
-          })).agent
+          })
+          return handle.agent
         }
 
         try {
@@ -1667,7 +1668,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
         }
         const composition = await composeAgent(presetId)
-        return (await ctx.agents.create({
+        const created = await ctx.agents.create({
           sessionId,
           agentOptions: agentOptions(),
           meta: {
@@ -1675,7 +1676,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             ...composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset },
           },
           setup: composition.setup,
-        })).agent
+        })
+        return created.agent
       })().catch((error: unknown) => {
         // Another Host entry path may have published the same identity while
         // this operation crossed an asynchronous persistence/filesystem step.
@@ -2634,13 +2636,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async delete(request) {
         const { sessionId } = request.payload
-        if (ctx.sessions.get(sessionId) !== undefined) {
+        const agent = ctx.agents.get(sessionId)
+        if (agent !== undefined && agent.status === 'running') {
           return err(request, {
             code: 'session-busy',
             message: `session "${sessionId}" is running; stop it before deleting`,
             details: { sessionId },
           })
         }
+        // An idle attached session still owns its durable log through the
+        // persistence coordinator, so stop it first; disposal flushes and
+        // releases the live ownership before the log is removed. The registry
+        // retains every create/resume handle, so this also covers sessions
+        // attached outside `ensureSession` (subagents, forks).
+        await ctx.agents.dispose(sessionId)
         // Remove accounting/archive membership first so a failed log delete
         // leaves the session Ungrouped rather than a dangling account slot.
         await ctx.workspaceRegistry.removeSession(sessionId)

@@ -435,4 +435,35 @@ describe('AgentRegistry factory seam', () => {
     const raw = (traced as unknown as { [symbols.original]?: TracedFactory })[symbols.original]
     expect(states.get(raw!)).toEqual(['create', 'resume'])
   })
+
+  it('retains each create/resume handle and disposes it by id', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const disposed: string[] = []
+    ctx.agents.setFactory({
+      async createAgent(_ownerCtx, options) {
+        return {
+          agent: stubAgent(options.sessionId),
+          dispose: async () => { disposed.push(String(options.sessionId)) },
+        }
+      },
+      async resume(_ownerCtx, options) {
+        return {
+          agent: stubAgent(options.resumeSessionId),
+          dispose: async () => { disposed.push(String(options.resumeSessionId)) },
+        }
+      },
+    })
+    await ctx.agents.create({ sessionId: SessionId('create-dispose') })
+    await ctx.agents.resume({ resumeSessionId: SessionId('resume-dispose') })
+
+    await ctx.agents.dispose(SessionId('create-dispose'))
+    expect(disposed).toEqual(['create-dispose'])
+    // An absent id and a repeat of an already-retired id are both no-ops.
+    await ctx.agents.dispose(SessionId('missing'))
+    await ctx.agents.dispose(SessionId('create-dispose'))
+    expect(disposed).toEqual(['create-dispose'])
+    await ctx.agents.dispose(SessionId('resume-dispose'))
+    expect(disposed).toEqual(['create-dispose', 'resume-dispose'])
+  })
 })

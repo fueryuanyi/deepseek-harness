@@ -255,6 +255,8 @@ interface FactorySlot {
  */
 export class AgentRegistry extends Service {
   private store = new Map<SessionId, AgentEntry>()
+  /** Shared teardown per live agent id, retained from each create/resume handle. */
+  private readonly disposers = new Map<SessionId, () => Promise<void>>()
   private factory: FactorySlot | undefined
   private readonly initiators = new AsyncLocalStorage<Agent | undefined>()
   private readonly initiatorRuns = new AsyncLocalStorage<InitiatorRun>()
@@ -286,6 +288,9 @@ export class AgentRegistry extends Service {
     // accessor body never needs to resolve a scope itself. Effect-scoped:
     // unwinds with this service's fiber.
     ctx.accessor('agent', { get: () => undefined })
+    ctx.on('agent/disposed', ({ agent }) => {
+      this.disposers.delete(agent.id)
+    })
     ctx.on('internal/status', (fiber) => {
       if (fiber.state === FiberState.UNLOADING && this.hasLifecycleAncestor(fiber)) {
         this.closeInitiators()
@@ -411,7 +416,9 @@ export class AgentRegistry extends Service {
     const { target } = this.requireFactory()
     const receiver = getTraceable(ownerCtx, target)
     // oxlint-disable-next-line typescript/unbound-method -- Reflect.apply intentionally supplies the caller-traced receiver
-    return Reflect.apply(target.createAgent, receiver, [ownerCtx, options])
+    const handle = await Reflect.apply(target.createAgent, receiver, [ownerCtx, options])
+    this.disposers.set(handle.agent.id, () => handle.dispose())
+    return handle
   }
 
   /**
@@ -426,7 +433,9 @@ export class AgentRegistry extends Service {
     const { target } = this.requireFactory()
     const receiver = getTraceable(ownerCtx, target)
     // oxlint-disable-next-line typescript/unbound-method -- Reflect.apply intentionally supplies the caller-traced receiver
-    return Reflect.apply(target.resume, receiver, [ownerCtx, options])
+    const handle = await Reflect.apply(target.resume, receiver, [ownerCtx, options])
+    this.disposers.set(handle.agent.id, () => handle.dispose())
+    return handle
   }
 
   /**
@@ -582,6 +591,21 @@ export class AgentRegistry extends Service {
    */
   get(id: SessionId): Agent | undefined {
     return this.store.get(id)?.agent
+  }
+
+  /**
+   * Tear down one live agent by id: stop its loop, unregister it, remove its
+   * session, and unwind its scope through the retained create/resume handle.
+   * Resolves without effect for an id with no live agent or already-retired
+   * teardown, so callers may dispose defensively before deleting a session.
+   * @param id - the shared agent/session id to dispose.
+   * @returns resolution after the shared teardown settles.
+   */
+  async dispose(id: SessionId): Promise<void> {
+    const dispose = this.disposers.get(id)
+    if (dispose === undefined) return
+    this.disposers.delete(id)
+    await dispose()
   }
 
   /**

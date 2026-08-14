@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentFactory } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentFactory, AgentStatus } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import Storage from '@deepseek-ai/dsh-storage'
@@ -39,13 +39,13 @@ async function nextHostFrame(
   return next.value
 }
 
-function stubAgent(session: Session): Agent {
+function stubAgent(session: Session, status: AgentStatus = 'idle'): Agent {
   return {
     id: session.id,
     options: {},
     session,
     inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
-    status: 'idle',
+    status,
     ctx: new Context(),
     send: () => {},
     followup: () => {},
@@ -64,6 +64,7 @@ async function harness(
   extras: {
     openPath?: (path: string, signal: AbortSignal) => Promise<void>
     canOpenPath?: () => boolean
+    agentStatus?: AgentStatus
   } = {},
 ) {
   const ctx = new Context()
@@ -83,16 +84,22 @@ async function harness(
 
   const factory: AgentFactory = {
     async createAgent(_ownerCtx, options) {
-      const session = ctx.sessions.create(
+      const session = ctx.sessions.prepare(
         options.sessionId,
         options.meta === undefined ? {} : { meta: options.meta },
       )
-      const agent = stubAgent(session)
+      // Mirror the agent-loop handle contract: dispose stops/unregisters the
+      // agent and removes the session, so delete's disposal path leaves no
+      // attached residue behind.
+      const detach = ctx.sessions.enter(session)
+      ctx.sessions.announce(session)
+      const agent = stubAgent(session, extras.agentStatus)
       const unregister = ctx.agents.register(agent)
       return {
         agent,
         dispose: () => {
           unregister()
+          detach()
           return Promise.resolve()
         },
       }
@@ -589,10 +596,10 @@ describe('Host Workspace increments', () => {
     expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(sessionId)
   })
 
-  it('rejects deleting a live (attached) session with session-busy', async () => {
-    const { api, root } = await harness()
-    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'delete-live') }))).workspace
-    const sessionId = SessionId('session-live-delete')
+  it('rejects deleting a running session with session-busy', async () => {
+    const { api, root } = await harness(undefined, undefined, { agentStatus: 'running' })
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'delete-running') }))).workspace
+    const sessionId = SessionId('session-running-delete')
     expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
 
     const result = await api.sessions.delete(request({ sessionId }))
@@ -600,6 +607,20 @@ describe('Host Workspace increments', () => {
       ok: false,
       error: { code: 'session-busy', details: { sessionId } },
     })
+  })
+
+  it('deletes an idle attached session by disposing it before the log removal', async () => {
+    const { api, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'delete-idle') }))).workspace
+    const sessionId = SessionId('session-idle-delete')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+    expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(sessionId)
+
+    const result = await api.sessions.delete(request({ sessionId }))
+    expect(result.result).toMatchObject({ ok: true, value: { deleted: true } })
+    // Disposal unregisters the agent, and the account slot is cleared.
+    expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).not.toContain(sessionId)
+    expect(expectOk(await api.workspace.list(request({}))).items[0]?.sessionIds ?? []).not.toContain(sessionId)
   })
 
   it('deletes a cold session through the persistence layer', async () => {
